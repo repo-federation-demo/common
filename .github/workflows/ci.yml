@@ -1,0 +1,45 @@
+name: Run tests locally (CI for shared workflows)
+
+on:
+  push:
+
+env:
+  PYTHON_VERSIONS: "['3.10', '3.11']"
+
+jobs:
+  bake-build-args:
+    name: Bake build args into string to pass into other workflows
+    runs-on: ubuntu-latest
+    outputs:
+      build_args: ${{ steps.gingerbread.outputs.build_args }}
+    steps:
+      - id: gingerbread
+        run: echo "build_args={\"PYTHON_VERSION\":$PYTHON_VERSIONS}" >> "$GITHUB_OUTPUT"
+
+  # this one goes through much of the release process, but does not try to deploy it.
+  call-release-workflow-snapshot:
+    name: Build and release tagged image
+    uses: ./.github/workflows/shared_build_and_push.yml
+    secrets: inherit
+    needs: bake-build-args
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    with:
+      push: true
+      tags: |
+        ghcr.io/repo-federation-demo/common:${{ github.ref_name }}
+        ghcr.io/repo-federation-demo/common:latest
+      build_args: ${{ needs.bake-build-args.outputs.build_args }}
+
+  call-release-workflow-tag:
+    name: Build CI image
+    uses: ./.github/workflows/shared_build_and_push.yml
+    needs: bake-build-args
+    secrets: inherit
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    with:
+      push: false
+      tags: |
+        ghcr.io/repo-federation-demo/common:${{ github.ref_name }}
+        ghcr.io/repo-federation-demo/common:latest
+      build_args: ${{ needs.bake-build-args.outputs.build_args }}
+

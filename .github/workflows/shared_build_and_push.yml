@@ -1,0 +1,66 @@
+name: build and push docker image
+
+# we don't run this file directly for our CI. Instead, for dogfooding purposes, we have another
+# workflow that calls this workflow, as any workflow external to our repo would.
+on:
+  workflow_dispatch:
+    inputs:
+      build_args:
+        description: "Arguments to pass through to docker build. This is interpreted as a JSON array."
+        required: false
+        type: string
+        default: ""
+      tags:
+        description: "Tags for the image, including repo, image name and tag. This is interpreted as a JSON array."
+        required: true
+        type: string
+      push:
+        description: "Whether or not to push the image. Generally enabled if we're on a released tag."
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      build_args:
+        description: "Arguments to pass through to docker build. This is interpreted as a JSON array."
+        required: false
+        type: string
+        default: ""
+      tags:
+        description: "Tags for the image, including repo, image name and tag. This is interpreted as a JSON array."
+        required: true
+        type: string
+      push:
+        description: "Whether or not to push the image. Generally enabled if we're on a released tag."
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build-with-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      # YAML has no loop constructs. These strings need the matrix variables in them, but this high-level script
+      #    can't specify them.
+      matrix: ${{ fromJSON(inputs.build_args) }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+      - name: parse the collection of build_args and output tag value helpers and build_args list with matrix input
+        id: vars
+        run: |
+          echo "build_args=\"$(python json_matrix_parsing.py '${{ inputs.build_args }}' '${{ toJSON(matrix) }}')\"" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Log in to the GitHub Container registry
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          build-args: ${{ steps.vars.outputs.build_args }}
+          push: ${{ inputs.push }}
+          tags: ${{ inputs.tags }}
